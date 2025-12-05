@@ -41,7 +41,7 @@ def get_hex_name(key): return HEX_DB.get(key, "미지")
 
 # --- 3. 핵심 기능 함수들 ---
 
-# (1) PDF 생성 클래스
+# (1) PDF 생성 클래스 (여기가 오류 났던 부분입니다. 완벽하게 수정했습니다.)
 class PDFReport(FPDF):
     def header(self):
         font_path = 'NanumGothic.ttf'
@@ -58,12 +58,30 @@ class PDFReport(FPDF):
         self.cell(0, 10, f'Match {match_idx}: {t_a} vs {t_b}', 0, 1, 'L')
         self.ln(2)
         
-        # 승률 바
+        # 승률 바 그리기
         total_w = 190
         w_h = total_w * (wr_h / 100)
         w_d = total_w * (wr_d / 100)
         w_a = total_w * (wr_a / 100)
+        
         self.set_fill_color(231, 76, 60)
-        self.cell(w_h, 8, f'{wr_h}%', 1, 0, 'C', 1)
+        self.cell(w_h, 8, f'{wr_h}%', 1, 0, 'C', 1) # 여기가 잘려있던 부분
+        
         self.set_fill_color(149, 165, 166)
-        self.cell(w_d, 8, f'{wr_d}%', 1
+        self.cell(w_d, 8, f'{wr_d}%', 1, 0, 'C', 1) # 여기가 잘려있던 부분
+        
+        self.set_fill_color(52, 152, 219)
+        self.cell(w_a, 8, f'{wr_a}%', 1, 1, 'C', 1) # 여기가 잘려있던 부분
+        self.ln(10)
+
+        # 팩트 요약
+        self.set_font_size(10)
+        self.multi_cell(0, 6, f"[상대전적] {fact1}\n[홈팀기세] {fact2}\n[원정기세] {fact3}")
+        self.ln(5)
+        
+        # 상세 분석
+        self.multi_cell(0, 6, analysis_text)
+        self.ln(10)
+
+def create_pdf(analysis_results):
+    pdf = PDF
