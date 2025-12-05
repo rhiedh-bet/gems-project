@@ -1,5 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import requests
 import pandas as pd
 from datetime import datetime
@@ -18,12 +19,10 @@ st.markdown("""
     .yang { background-color: #2c3e50; height: 10px; width: 100%; margin-bottom: 4px; border-radius: 2px; }
     .yin { background: linear-gradient(to right, #2c3e50 42%, transparent 42%, transparent 58%, #2c3e50 58%); height: 10px; width: 100%; margin-bottom: 4px; border-radius: 2px; }
     .hex-box { width: 50px; padding: 5px; border: 1px solid #ddd; background: #fff; margin: 0 auto; display: flex; flex-direction: column; justify-content: center; }
-    
     .win-rate-container { display: flex; width: 100%; height: 30px; border-radius: 15px; overflow: hidden; margin: 15px 0; font-size: 0.9rem; font-weight: bold; color: white; line-height: 30px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
     .wr-home { background-color: #e74c3c; text-align: center; }
     .wr-draw { background-color: #95a5a6; text-align: center; }
     .wr-away { background-color: #3498db; text-align: center; }
-    
     .fact-box { background-color: #f1f3f5; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; text-align: center; height: 100%; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
     .fact-title { font-size: 0.85rem; color: #495057; margin-bottom: 8px; font-weight: bold; text-transform: uppercase; }
     .fact-value { font-size: 1.1rem; font-weight: 800; color: #212529; word-break: keep-all; line-height: 1.4; }
@@ -39,7 +38,7 @@ def get_hex_name(key): return HEX_DB.get(key, "미지")
 
 # --- 3. 핵심 기능 함수들 ---
 
-# (1) PDF 생성 클래스 (문법 오류 수정됨)
+# (1) PDF 생성 클래스
 class PDFReport(FPDF):
     def header(self):
         font_path = 'NanumGothic.ttf'
@@ -56,7 +55,7 @@ class PDFReport(FPDF):
         self.cell(0, 10, f'Match {match_idx}: {t_a} vs {t_b}', 0, 1, 'L')
         self.ln(2)
         
-        # 승률 바 그리기
+        # 승률 바
         total_w = 190
         w_h = total_w * (wr_h / 100)
         w_d = total_w * (wr_d / 100)
@@ -64,20 +63,15 @@ class PDFReport(FPDF):
         
         self.set_fill_color(231, 76, 60)
         self.cell(w_h, 8, f'{wr_h}%', 1, 0, 'C', 1)
-        
         self.set_fill_color(149, 165, 166)
         self.cell(w_d, 8, f'{wr_d}%', 1, 0, 'C', 1)
-        
         self.set_fill_color(52, 152, 219)
         self.cell(w_a, 8, f'{wr_a}%', 1, 1, 'C', 1)
         self.ln(10)
 
-        # 팩트 요약
         self.set_font_size(10)
         self.multi_cell(0, 6, f"[상대전적] {fact1}\n[홈팀기세] {fact2}\n[원정기세] {fact3}")
         self.ln(5)
-        
-        # 상세 분석
         self.multi_cell(0, 6, analysis_text)
         self.ln(10)
 
@@ -95,37 +89,48 @@ def create_pdf(analysis_results):
         )
     return pdf.output(dest='S').encode('latin1')
 
-# (2) 이미지 인식 함수 (파싱 강화)
+# (2) 이미지 인식 함수 (모델명 수정 및 안전 설정)
 def extract_matches_from_image(image, api_key):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # [수정] 모델명을 'gemini-1.5-flash-latest'로 변경 (404 오류 해결)
+    # 만약 이것도 안 되면 'gemini-pro'를 써야 하지만, 이미지는 flash가 필수.
+    model_name = 'gemini-1.5-flash-latest' 
+    model = genai.GenerativeModel(model_name)
+    
+    # 안전 필터 해제
+    safety_settings = {
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+    }
     
     prompt = """
     이 이미지는 스포츠 경기 일정표야.
-    이미지 안에 있는 모든 텍스트를 분석해서, '팀이름 vs 팀이름' 형태나 '홈팀', '원정팀' 열에 있는 팀 이름들을 찾아줘.
+    '홈팀'과 '원정팀' 열에 있는 팀 이름들을 찾거나, '팀A vs 팀B' 형식을 찾아줘.
     
-    주의사항:
+    [규칙]
     1. 배당률, 날짜, 투표수 같은 숫자는 모두 무시해.
-    2. 팀 이름이 영어면 한글로 번역해줘 (예: Arsenal -> 아스날).
-    3. 반드시 아래 JSON 형식으로만 출력해 (코드블럭 없이):
-    [{"team_a": "홈팀명", "team_b": "원정팀명"}, ...]
+    2. 오직 팀 이름만 추출해.
+    3. 반드시 아래 JSON 형식으로만 출력해:
+    [
+        {"team_a": "홈팀명1", "team_b": "원정팀명1"},
+        {"team_a": "홈팀명2", "team_b": "원정팀명2"}
+    ]
     """
+    
     try:
-        response = model.generate_content([prompt, image])
+        response = model.generate_content([prompt, image], safety_settings=safety_settings)
         text = response.text
-        
-        # JSON 파싱 (코드블럭 제거)
         start = text.find('[')
         end = text.rfind(']') + 1
-        
         if start == -1 or end == 0:
-            st.error(f"데이터 추출 실패. AI 응답: {text[:100]}...")
+            st.error(f"⚠️ AI 응답 오류: {text[:100]}...")
             return []
-            
-        json_str = text[start:end]
-        return json.loads(json_str)
+        return json.loads(text[start:end])
     except Exception as e:
-        st.error(f"이미지 인식 오류: {e}")
+        st.error(f"❌ 이미지 인식 오류 ({model_name}): {e}")
         return []
 
 # (3) 괘 계산 및 UI
@@ -172,43 +177,49 @@ with st.sidebar:
         api_key = st.secrets["GEMINI_API_KEY"]
     else:
         api_key = st.text_input("Gemini API Key", type="password")
+    
+    # [디버깅] 사용 가능한 모델 확인용 버튼
+    if api_key and st.button("내 사용가능 모델 확인"):
+        try:
+            genai.configure(api_key=api_key)
+            models = [m.name for m in genai.list_models()]
+            st.success("사용 가능한 모델 목록:")
+            st.code("\n".join(models))
+        except Exception as e:
+            st.error(f"키 확인 실패: {e}")
 
 st.title("💎 GEMS Pro: 승부예측 & 리포트")
 
-# 세션 상태 초기화
 if 'matches_from_image' not in st.session_state:
     st.session_state.matches_from_image = []
 
-# [입력 모드 선택] (수기 vs 자동)
+# [입력 모드 선택]
 input_mode = st.radio("입력 방식 선택", ["✍️ 수기 입력 모드", "📷 이미지 자동 인식 모드"], horizontal=True)
 
 if input_mode == "📷 이미지 자동 인식 모드":
     with st.container(border=True):
-        st.info("경기 일정표 이미지를 업로드하면 팀 이름을 자동으로 입력합니다.")
+        st.info("💡 경기 일정표 이미지를 업로드하면 팀 이름을 자동으로 입력합니다.")
         uploaded_file = st.file_uploader("이미지 파일 업로드", type=["jpg", "png", "jpeg"])
         
         if uploaded_file and st.button("이미지 분석 및 자동 세팅"):
             if not api_key: st.error("API 키를 먼저 입력해주세요.")
             else:
-                with st.spinner("이미지 분석 중... (Gemini Flash)"):
+                with st.spinner("이미지 분석 중... (gemini-1.5-flash-latest)"):
                     img = Image.open(uploaded_file)
                     data = extract_matches_from_image(img, api_key)
                     if data:
                         st.session_state.matches_from_image = data
-                        st.success(f"성공! 총 {len(data)}개의 경기를 찾았습니다. 아래에 자동 입력됩니다.")
+                        st.success(f"성공! 총 {len(data)}개의 경기를 찾았습니다.")
                     else:
-                        st.warning("인식된 경기가 없습니다. 이미지가 깨끗한지 확인해주세요.")
+                        st.warning("인식된 경기가 없습니다.")
     
-    # 이미지 모드일 때의 경기 수
     default_count = len(st.session_state.matches_from_image) if st.session_state.matches_from_image else 1
     st.write(f"📊 **자동 인식된 경기 수:** {default_count}경기")
 
 else:
-    # 수기 모드일 때
-    st.session_state.matches_from_image = [] # 수기 모드면 자동 인식 데이터 무시 (원하면 주석 처리 가능)
     default_count = 1
 
-# [공통] 경기 수 조정 (자동 모드여도 사용자가 수정 가능)
+# [공통] 경기 수 조정
 num_matches = st.number_input("분석할 경기 수 설정", min_value=1, max_value=20, value=default_count)
 
 all_matches = []
@@ -216,7 +227,6 @@ st.divider()
 
 for i in range(num_matches):
     with st.container(border=True):
-        # 데이터가 있으면 채우고, 없으면 빈칸
         da = st.session_state.matches_from_image[i]['team_a'] if i < len(st.session_state.matches_from_image) else ""
         db = st.session_state.matches_from_image[i]['team_b'] if i < len(st.session_state.matches_from_image) else ""
         
@@ -251,12 +261,13 @@ if st.button("🚀 GEMS 통합 분석 시작", type="primary", use_container_wid
             with st.spinner(f"{ta} vs {tb} 분석 중..."):
                 try:
                     tools = [{"google_search_retrieval": {"dynamic_retrieval_config": {"mode": "dynamic", "dynamic_threshold": 0.7}}}]
-                    model = genai.GenerativeModel('gemini-1.5-flash', tools=tools)
+                    # [수정] 분석용 모델도 -latest로 통일
+                    model = genai.GenerativeModel('gemini-1.5-flash-latest', tools=tools)
                     
                     prompt = f"""
                     GEMS 분석가로서 '{ta} vs {tb}' 경기를 구글 검색하고 주역 데이터({ra['o_name']}->{ra['c_name']}, {rb['o_name']}->{rb['c_name']})와 통합 분석하라.
                     
-                    반드시 아래 JSON 포맷으로만 응답할 것 (마크다운 코드블럭 없이 텍스트로만):
+                    반드시 아래 JSON 포맷으로만 응답할 것 (마크다운 코드블럭 없이):
                     {{
                         "wr_h": 45, "wr_d": 25, "wr_a": 30,
                         "fact_h2h": "상대전적 요약 (예: 최근 5전 2승 3패)",
@@ -276,7 +287,6 @@ if st.button("🚀 GEMS 통합 분석 시작", type="primary", use_container_wid
                     except:
                         data = {"wr_h": 33, "wr_d": 33, "wr_a": 34, "fact_h2h": "-", "fact_home": "-", "fact_away": "-", "summary": resp}
 
-                    # 시각화
                     c1, c2, c3 = st.columns(3)
                     c1.markdown(f"<div class='fact-box'><div class='fact-title'>🆚 상대전적</div><div class='fact-value'>{data.get('fact_h2h','-')}</div></div>", unsafe_allow_html=True)
                     c2.markdown(f"<div class='fact-box'><div class='fact-title'>📈 {ta} 기세</div><div class='fact-value'>{data.get('fact_home','-')}</div></div>", unsafe_allow_html=True)
@@ -304,16 +314,4 @@ if st.button("🚀 GEMS 통합 분석 시작", type="primary", use_container_wid
                     pdf_data.append({
                         "idx": m['idx'], "t_a": ta, "t_b": tb,
                         "wr_h": wh, "wr_d": wd, "wr_a": wa,
-                        "fact1": data.get('fact_h2h','-'),
-                        "fact2": data.get('fact_home','-'),
-                        "fact3": data.get('fact_away','-'),
-                        "text": data.get('summary','')
-                    })
-
-                except Exception as e: st.error(f"오류: {e}")
-            st.divider()
-
-        if pdf_data:
-            st.success("🎉 분석 완료!")
-            pdf_bytes = create_pdf(pdf_data)
-            st.download_button("📄 PDF 리포트 다운로드", pdf_bytes, "GEMS_Report.pdf", "application/pdf")
+                        "fact1": data.get('fact_
