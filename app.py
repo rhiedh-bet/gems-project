@@ -1,52 +1,130 @@
 import streamlit as st
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
-import requests
-import pandas as pd
 from PIL import Image
 import json
-from fpdf import FPDF
-import os
 
 # --- 1. 페이지 설정 ---
-st.set_page_config(layout="wide", page_title="GEMS: Pro Sports Analysis")
+st.set_page_config(page_title="GEMS Lite", layout="wide")
 
-# 스타일 CSS
+# --- 2. CSS 디자인 (심플 & 모던) ---
 st.markdown("""
 <style>
-    .yang { background-color: #2c3e50; height: 10px; width: 100%; margin-bottom: 4px; border-radius: 2px; }
-    .yin { background: linear-gradient(to right, #2c3e50 42%, transparent 42%, transparent 58%, #2c3e50 58%); height: 10px; width: 100%; margin-bottom: 4px; border-radius: 2px; }
-    .hex-box { width: 50px; padding: 5px; border: 1px solid #ddd; background: #fff; margin: 0 auto; display: flex; flex-direction: column; justify-content: center; }
-    .win-rate-container { display: flex; width: 100%; height: 30px; border-radius: 15px; overflow: hidden; margin: 15px 0; font-size: 0.9rem; font-weight: bold; color: white; line-height: 30px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-    .wr-home { background-color: #e74c3c; text-align: center; }
-    .wr-draw { background-color: #95a5a6; text-align: center; }
-    .wr-away { background-color: #3498db; text-align: center; }
-    .fact-box { background-color: #f1f3f5; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; text-align: center; height: 100%; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-    .fact-title { font-size: 0.85rem; color: #495057; margin-bottom: 8px; font-weight: bold; text-transform: uppercase; }
-    .fact-value { font-size: 1.1rem; font-weight: 800; color: #212529; word-break: keep-all; line-height: 1.4; }
+    .report-box { background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 1px solid #e9ecef; margin-bottom: 20px; }
+    .highlight { color: #d63384; font-weight: bold; }
+    .win-bar { display: flex; height: 25px; border-radius: 12px; overflow: hidden; margin: 10px 0; color: white; font-size: 0.8rem; line-height: 25px; text-align: center; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 데이터 및 유틸리티 ---
-RAW_DATA = """111-111 중천건 111-112 택천쾌 111-121 화천대유 111-122 뇌천대장 111-211 풍천소축 111-212 수천수 111-221 산천대축 111-222 지천태 112-111 천택리 112-112 태위택 112-121 화택규 112-122 뇌택귀매 112-211 풍택중부 112-212 수택절 112-221 산택손 112-222 지택림 121-111 천화동인 121-112 택화혁 121-121 중화리 121-122 뇌화풍 121-211 풍화가인 121-212 수화기제 121-221 산화비 121-222 지화명이 122-111 천뢰무망 122-112 택뢰수 122-121 화뢰서합 122-122 진위뢰 122-211 풍뢰익 122-212 수뢰둔 122-221 산뢰이 122-222 지뢰복 211-111 천풍구 211-112 택풍대과 211-121 화풍정 211-122 뇌풍항 211-211 중풍손 211-212 수풍정 211-221 산풍고 211-222 지풍승 212-111 천수송 212-112 택수곤 212-121 화수미제 212-122 뇌수해 212-211 풍수환 212-212 감위수 212-221 산수몽 212-222 지수사 221-111 천산돈 221-112 택산함 221-121 화산려 221-122 뇌산소과 221-211 풍산점 221-212 수산건 221-221 간위산 221-222 지산겸 222-111 천지비 222-112 택지췌 222-121 화지진 222-122 뇌지예 222-211 풍지관 222-212 수지비 222-221 산지박 222-222 중지곤"""
-HEX_DB = {}
-tokens = RAW_DATA.split()
-for i in range(0, len(tokens), 2): HEX_DB[tokens[i]] = tokens[i+1]
-def get_hex_name(key): return HEX_DB.get(key, "미지")
+# --- 3. 함수 정의 ---
+def get_model(api_key):
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel('gemini-1.5-flash')
 
-# --- 3. 핵심 기능 함수들 ---
+def analyze_match(api_key, home, away, h_hex, a_hex):
+    model = get_model(api_key)
+    prompt = f"""
+    스포츠 경기 분석: {home} vs {away}
+    주역 괘: {home}({h_hex}), {away}({a_hex})
+    
+    위 정보를 바탕으로 다음 JSON 형식으로만 답해 (마크다운 없이):
+    {{
+        "win_h": 40, "win_d": 30, "win_a": 30,
+        "summary": "핵심 분석 내용 (3줄 요약)"
+    }}
+    """
+    try:
+        res = model.generate_content(prompt)
+        return json.loads(res.text.replace("```json", "").replace("```", ""))
+    except:
+        return {"win_h":33, "win_d":33, "win_a":34, "summary": "분석 실패 (다시 시도해주세요)"}
 
-# (1) PDF 생성 클래스
-class PDFReport(FPDF):
-    def header(self):
-        font_path = 'NanumGothic.ttf'
-        if os.path.exists(font_path):
-            self.add_font('Nanum', '', font_path, uni=True)
-            self.set_font('Nanum', '', 10)
+def analyze_image(api_key, image):
+    model = get_model(api_key)
+    prompt = """
+    이미지 속 경기 일정(팀 이름)을 추출해. 숫자 무시.
+    JSON 형식: [{"home": "팀A", "away": "팀B"}, ...]
+    """
+    try:
+        res = model.generate_content([prompt, image])
+        return json.loads(res.text.replace("```json", "").replace("```", ""))
+    except:
+        return []
+
+# --- 4. 메인 화면 ---
+st.title("💎 GEMS Lite")
+st.caption("가볍고 빠른 AI 승부예측")
+
+with st.sidebar:
+    st.header("설정")
+    api_key = st.text_input("Gemini API Key", type="password")
+    
+    st.divider()
+    st.markdown("### 사용법")
+    st.markdown("1. 키 입력\n2. 이미지 업로드 또는 수기 입력\n3. 분석 시작")
+
+if 'matches' not in st.session_state:
+    st.session_state.matches = []
+
+# 입력 탭
+tab1, tab2 = st.tabs(["📷 이미지로 자동 입력", "✍️ 직접 입력"])
+
+with tab1:
+    img_file = st.file_uploader("경기 일정표 이미지 업로드", type=['png', 'jpg'])
+    if img_file and st.button("이미지 인식"):
+        if not api_key: st.error("API 키 필요")
         else:
-            self.set_font('Arial', '', 10)
-        self.cell(0, 10, 'GEMS Sports Analysis Report', 0, 1, 'C')
-        self.ln(5)
+            with st.spinner("스캔 중..."):
+                data = analyze_image(api_key, Image.open(img_file))
+                if data:
+                    st.session_state.matches = data
+                    st.success(f"{len(data)}경기 인식 성공!")
+                    st.rerun()
 
-    def chapter_body(self, match_idx, t_a, t_b, wr_h, wr_d, wr_a, fact1, fact2, fact3, analysis_text):
-        self.set_font_size(14)
+with tab2:
+    if st.button("입력창 추가"):
+        st.session_state.matches.append({"home": "", "away": ""})
+
+# 리스트 출력 및 분석
+if st.session_state.matches:
+    st.divider()
+    st.subheader(f"총 {len(st.session_state.matches)}개의 경기 분석")
+    
+    # 폼 데이터 수집을 위한 컨테이너
+    inputs = []
+    for i, m in enumerate(st.session_state.matches):
+        with st.expander(f"Match {i+1}: {m.get('home','홈')} vs {m.get('away','원정')}", expanded=True):
+            c1, c2 = st.columns(2)
+            h = c1.text_input("홈팀", m.get('home',''), key=f"h{i}")
+            a = c2.text_input("원정팀", m.get('away',''), key=f"a{i}")
+            
+            c3, c4 = st.columns(2)
+            h_hex = c3.text_input("홈팀 괘 (예: 건위천)", key=f"hh{i}")
+            a_hex = c4.text_input("원정팀 괘 (예: 곤위지)", key=f"ah{i}")
+            
+            inputs.append({"home": h, "away": a, "h_hex": h_hex, "a_hex": a_hex})
+
+    if st.button("🚀 전체 분석 시작", type="primary"):
+        if not api_key: st.error("API 키가 없습니다.")
+        else:
+            for idx, item in enumerate(inputs):
+                if item['home'] and item['away']:
+                    st.markdown(f"---")
+                    st.markdown(f"### 🏁 Match {idx+1}: {item['home']} vs {item['away']}")
+                    
+                    with st.spinner("AI 분석 중..."):
+                        res = analyze_match(api_key, item['home'], item['away'], item['h_hex'], item['a_hex'])
+                        
+                        # 결과 표시
+                        st.markdown(f"""
+                        <div class="win-bar">
+                            <div style="width:{res['win_h']}%; background:#ff4b4b;">{item['home']} {res['win_h']}%</div>
+                            <div style="width:{res['win_d']}%; background:#888;">무 {res['win_d']}%</div>
+                            <div style="width:{res['win_a']}%; background:#4b4bff;">{item['away']} {res['win_a']}%</div>
+                        </div>
+                        <div class="report-box">
+                            <b>📊 AI 분석 요약:</b><br>{res['summary']}
+                        </div>
+                        """, unsafe_allow_html=True)
+            
+            st.success("모든 분석이 완료되었습니다. (결과를 저장하려면 브라우저 인쇄 기능을 사용하세요)")
