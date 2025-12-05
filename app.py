@@ -12,7 +12,7 @@ import os
 # --- 1. 페이지 설정 ---
 st.set_page_config(layout="wide", page_title="GEMS: Pro Sports Analysis")
 
-# 스타일 CSS (팩트 박스 디자인 강화)
+# 스타일 CSS
 st.markdown("""
 <style>
     .yang { background-color: #2c3e50; height: 10px; width: 100%; margin-bottom: 4px; border-radius: 2px; }
@@ -41,7 +41,7 @@ def get_hex_name(key): return HEX_DB.get(key, "미지")
 
 # --- 3. 핵심 기능 함수들 ---
 
-# (1) PDF 생성 클래스 (업그레이드: 팩트 포함)
+# (1) PDF 생성 클래스
 class PDFReport(FPDF):
     def header(self):
         font_path = 'NanumGothic.ttf'
@@ -150,133 +150,3 @@ def render_hex_input_ui(key_prefix, label):
 with st.sidebar:
     st.header("⚙️ 설정")
     try: api_key = st.secrets["GEMINI_API_KEY"]
-    except: api_key = st.text_input("Gemini API Key", type="password")
-
-st.title("💎 GEMS Pro: 승부예측 & 리포트")
-
-if 'matches_from_image' not in st.session_state:
-    st.session_state.matches_from_image = []
-
-# 1. 이미지 업로드
-with st.expander("📷 경기 일정 스크린샷으로 자동 입력 (Click)", expanded=True):
-    uploaded_file = st.file_uploader("경기 목록 이미지 업로드", type=["jpg", "png", "jpeg"])
-    if uploaded_file and st.button("이미지 분석"):
-        if not api_key: st.error("API 키 필요")
-        else:
-            with st.spinner("이미지 분석 중..."):
-                img = Image.open(uploaded_file)
-                data = extract_matches_from_image(img, api_key)
-                if data:
-                    st.session_state.matches_from_image = data
-                    st.success(f"{len(data)}경기 인식 완료!")
-
-# 2. 입력창 생성
-count = len(st.session_state.matches_from_image) if st.session_state.matches_from_image else 1
-num_matches = st.number_input("분석할 경기 수", 1, 20, count)
-all_matches = []
-
-st.divider()
-
-for i in range(num_matches):
-    with st.container(border=True):
-        da = st.session_state.matches_from_image[i]['team_a'] if i < len(st.session_state.matches_from_image) else ""
-        db = st.session_state.matches_from_image[i]['team_b'] if i < len(st.session_state.matches_from_image) else ""
-        
-        st.subheader(f"Match {i+1}")
-        c1, c2 = st.columns(2)
-        ta = c1.text_input("홈팀", da, key=f"ta_{i}")
-        tb = c2.text_input("원정팀", db, key=f"tb_{i}")
-        
-        c3, c4 = st.columns(2)
-        inp_a = with c3: render_hex_input_ui(f"ma_{i}", f"🏠 {ta} 괘")
-        inp_b = with c4: render_hex_input_ui(f"mb_{i}", f"✈️ {tb} 괘")
-        
-        all_matches.append({"idx": i+1, "ta": ta, "tb": tb, "inp_a": inp_a, "inp_b": inp_b})
-
-# 3. 분석 실행
-if st.button("🚀 GEMS 통합 분석 시작", type="primary"):
-    if not api_key: st.error("API 키 필요")
-    else:
-        genai.configure(api_key=api_key)
-        pdf_data = []
-        
-        for m in all_matches:
-            ra = calculate_hex(m['inp_a'])
-            rb = calculate_hex(m['inp_b'])
-            ta, tb = m['ta'] or "홈", m['tb'] or "원정"
-            
-            st.markdown(f"### 🏁 Match {m['idx']}: {ta} vs {tb}")
-            
-            with st.spinner("구글 검색 및 주역 분석 중..."):
-                try:
-                    tools = [{"google_search_retrieval": {"dynamic_retrieval_config": {"mode": "dynamic", "dynamic_threshold": 0.7}}}]
-                    model = genai.GenerativeModel('gemini-1.5-flash', tools=tools)
-                    
-                    # [중요] JSON 강제 출력 프롬프트
-                    prompt = f"""
-                    GEMS 분석가로서 '{ta} vs {tb}' 경기를 구글 검색하고 주역 데이터({ra['o_name']}->{ra['c_name']}, {rb['o_name']}->{rb['c_name']})와 통합 분석하라.
-                    
-                    반드시 아래 JSON 포맷으로만 응답할 것 (마크다운 코드블럭 금지):
-                    {{
-                        "wr_h": 45, "wr_d": 25, "wr_a": 30,
-                        "fact_h2h": "상대전적 요약 (예: 최근 5전 2승 3패)",
-                        "fact_home": "홈팀 최근 기세 요약 (예: 3연승 중)",
-                        "fact_away": "원정팀 최근 기세 요약 (예: 부상자 다수)",
-                        "summary": "종합 분석 내용 (300자 내외)"
-                    }}
-                    """
-                    resp = model.generate_content(prompt).text
-                    
-                    # JSON 파싱 (실패 시 기본값)
-                    try:
-                        import json
-                        # JSON 문자열만 추출 (```json ... ``` 제거)
-                        json_str = resp.strip()
-                        if "```" in json_str:
-                            json_str = json_str.split("```")[1].replace("json", "").strip()
-                        data = json.loads(json_str)
-                    except:
-                        data = {"wr_h": 33, "wr_d": 33, "wr_a": 34, "fact_h2h": "-", "fact_home": "-", "fact_away": "-", "summary": resp}
-
-                    # 1. 현실 데이터 시각화 (3단 박스)
-                    c1, c2, c3 = st.columns(3)
-                    c1.markdown(f"<div class='fact-box'><div class='fact-title'>🆚 상대전적</div><div class='fact-value'>{data.get('fact_h2h','-')}</div></div>", unsafe_allow_html=True)
-                    c2.markdown(f"<div class='fact-box'><div class='fact-title'>📈 {ta} 기세</div><div class='fact-value'>{data.get('fact_home','-')}</div></div>", unsafe_allow_html=True)
-                    c3.markdown(f"<div class='fact-box'><div class='fact-title'>📉 {tb} 기세</div><div class='fact-value'>{data.get('fact_away','-')}</div></div>", unsafe_allow_html=True)
-
-                    # 2. 승률 바 시각화
-                    wh, wd, wa = data.get('wr_h',33), data.get('wr_d',33), data.get('wr_a',34)
-                    st.markdown(f"""
-                    <div class="win-rate-container">
-                        <div class="wr-home" style="width:{wh}%">{ta} {wh}%</div>
-                        <div class="wr-draw" style="width:{wd}%">무 {wd}%</div>
-                        <div class="wr-away" style="width:{wa}%">{tb} {wa}%</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    # 3. 주역 시각화 및 분석글
-                    st.info(data.get('summary', ''))
-                    
-                    cv1, cv2 = st.columns(2)
-                    with cv1: 
-                        st.caption(f"{ta}: {ra['o_name']} ➜ {ra['c_name']}")
-                        st.markdown(ra['o_visual'], unsafe_allow_html=True)
-                    with cv2: 
-                        st.caption(f"{tb}: {rb['o_name']} ➜ {rb['c_name']}")
-                        st.markdown(rb['o_visual'], unsafe_allow_html=True)
-
-                    pdf_data.append({
-                        "idx": m['idx'], "t_a": ta, "t_b": tb,
-                        "wr_h": wh, "wr_d": wd, "wr_a": wa,
-                        "fact1": data.get('fact_h2h','-'),
-                        "fact2": data.get('fact_home','-'),
-                        "fact3": data.get('fact_away','-'),
-                        "text": data.get('summary','')
-                    })
-
-                except Exception as e: st.error(f"오류: {e}")
-            st.divider()
-
-        if pdf_data:
-            st.success("완료! 리포트를 다운로드하세요.")
-            st.download_button("📄 PDF 리포트 다운로드", create_pdf(pdf_data), "GEMS_Report.pdf", "application/pdf")
