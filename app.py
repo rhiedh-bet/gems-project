@@ -103,4 +103,67 @@ st.markdown("""
 
 st.divider()
 
-# [입
+# [입력 섹션]
+c1, c2 = st.columns(2)
+with c1:
+    team_a = st.text_input("홈 팀 (Home)", placeholder="예: 토트넘")
+    inp_a = render_hex_input_ui("home", "🏠 홈 팀 괘")
+    res_a = calculate_hex(inp_a)
+    
+    # 시각화 A
+    v1, v2, v3 = st.columns([1, 0.2, 1])
+    with v1: st.caption(res_a['o_name']); st.markdown(res_a['o_visual'], unsafe_allow_html=True)
+    with v2: st.markdown("<br><br>➜", unsafe_allow_html=True)
+    with v3: st.caption(res_a['c_name']); st.markdown(res_a['c_visual'], unsafe_allow_html=True)
+
+with c2:
+    team_b = st.text_input("원정 팀 (Away)", placeholder="예: 아스날")
+    inp_b = render_hex_input_ui("away", "✈️ 원정 팀 괘")
+    res_b = calculate_hex(inp_b)
+    
+    # 시각화 B
+    v4, v5, v6 = st.columns([1, 0.2, 1])
+    with v4: st.caption(res_b['o_name']); st.markdown(res_b['o_visual'], unsafe_allow_html=True)
+    with v5: st.markdown("<br><br>➜", unsafe_allow_html=True)
+    with v6: st.caption(res_b['c_name']); st.markdown(res_b['c_visual'], unsafe_allow_html=True)
+
+st.divider()
+
+# [프롬프트 생성]
+if st.button("✨ GEMS 분석용 프롬프트 생성", type="primary", use_container_width=True):
+    if not team_a or not team_b:
+        st.error("팀 이름을 입력해주세요!")
+    else:
+        # GEMS에게 현실 데이터를 찾아오라고 시키는 강력한 프롬프트
+        final_prompt = f"""
+[GEMS 통합 분석 요청]
+
+1. 분석 대상: {team_a} vs {team_b}
+
+2. [현실 데이터 수집 지시]
+- 지금 즉시 Google 검색 도구를 사용하여 위 경기의 **'정확한 경기 일정(한국시간)'**, **'최신 배당률(승/무/패)'**, **'양 팀 핵심 이슈'**를 검색하세요.
+- 검색된 데이터를 분석의 기초 배경으로 삼으세요.
+
+3. [주역 점사 데이터] (핵심 판단 근거)
+- {team_a} (홈): [{res_a['o_name']}]에서 [{res_a['c_name']}]으로 변화 (변효: {res_a['moving_display']})
+- {team_b} (원정): [{res_b['o_name']}]에서 [{res_b['c_name']}]으로 변화 (변효: {res_b['moving_display']})
+
+4. [분석 지침]
+- 현실 데이터(배당/전력)는 참고만 하되 종속되지 마시오.
+- 주역 괘의 흐름(오행, 기세, 효사)이 현실과 다르다면, 과감하게 **주역의 논리**를 따라 이변을 예측하시오.
+
+5. [★★★ 최종 출력 양식 (준수 필수) ★★★]
+분석 후 맨 마지막에 반드시 아래 양식으로 요약하시오.
+
+---
+{team_a} vs {team_b}
+경기일정 : (검색한 한국 시간 기입)
+현실예측 : (검색한 배당률/승률 기입)
+주역예측 : {team_a} 승률 OO%, {team_b} 승률 OO%, 무승부 확률 OO% (주역 독자 판단)
+---
+
+[엑셀 저장용 코드]
+`DATA|(검색한날짜)|{team_a}|{team_b}|{res_a['o_name']}->{res_a['c_name']}|{res_a['moving_raw']}|{res_b['o_name']}->{res_b['c_name']}|{res_b['moving_raw']}|[GEMS픽]|[확률]`
+"""
+        st.success("생성 완료! 아래 박스 내용을 복사해서 GEMS에게 붙여넣으세요.")
+        st.code(final_prompt, language='text')
