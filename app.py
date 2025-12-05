@@ -12,20 +12,23 @@ import os
 # --- 1. 페이지 설정 ---
 st.set_page_config(layout="wide", page_title="GEMS: Pro Sports Analysis")
 
-# 스타일 CSS
+# 스타일 CSS (팩트 박스 디자인 강화)
 st.markdown("""
 <style>
     .yang { background-color: #2c3e50; height: 10px; width: 100%; margin-bottom: 4px; border-radius: 2px; }
     .yin { background: linear-gradient(to right, #2c3e50 42%, transparent 42%, transparent 58%, #2c3e50 58%); height: 10px; width: 100%; margin-bottom: 4px; border-radius: 2px; }
     .hex-box { width: 50px; padding: 5px; border: 1px solid #ddd; background: #fff; margin: 0 auto; display: flex; flex-direction: column; justify-content: center; }
-    .arrow { font-size: 1.2rem; color: #8e44ad; text-align: center; margin-top: 20px; }
-    .win-rate-container { display: flex; width: 100%; height: 25px; border-radius: 12px; overflow: hidden; margin: 10px 0; font-size: 0.8rem; font-weight: bold; color: white; line-height: 25px; }
+    
+    /* 승률 바 */
+    .win-rate-container { display: flex; width: 100%; height: 30px; border-radius: 15px; overflow: hidden; margin: 15px 0; font-size: 0.9rem; font-weight: bold; color: white; line-height: 30px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
     .wr-home { background-color: #e74c3c; text-align: center; }
     .wr-draw { background-color: #95a5a6; text-align: center; }
     .wr-away { background-color: #3498db; text-align: center; }
-    .stat-box { background-color: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #eee; text-align: center; height: 100%; }
-    .stat-title { font-size: 0.8rem; color: #666; margin-bottom: 5px; }
-    .stat-value { font-size: 1rem; font-weight: bold; color: #333; }
+    
+    /* 현실 데이터 3단 박스 */
+    .fact-box { background-color: #f1f3f5; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; text-align: center; height: 100%; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .fact-title { font-size: 0.85rem; color: #495057; margin-bottom: 8px; font-weight: bold; text-transform: uppercase; }
+    .fact-value { font-size: 1.1rem; font-weight: 800; color: #212529; word-break: keep-all; line-height: 1.4; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -38,81 +41,75 @@ def get_hex_name(key): return HEX_DB.get(key, "미지")
 
 # --- 3. 핵심 기능 함수들 ---
 
-# (1) PDF 생성 클래스
+# (1) PDF 생성 클래스 (업그레이드: 팩트 포함)
 class PDFReport(FPDF):
     def header(self):
-        # 폰트 로드 (NanumGothic.ttf 파일이 있어야 함)
         font_path = 'NanumGothic.ttf'
         if os.path.exists(font_path):
             self.add_font('Nanum', '', font_path, uni=True)
             self.set_font('Nanum', '', 10)
         else:
-            self.set_font('Arial', '', 10) # 폰트 없으면 영어만 나옴
-            
+            self.set_font('Arial', '', 10)
         self.cell(0, 10, 'GEMS Sports Analysis Report', 0, 1, 'C')
         self.ln(5)
 
-    def chapter_body(self, match_idx, t_a, t_b, wr_h, wr_d, wr_a, analysis_text):
+    def chapter_body(self, match_idx, t_a, t_b, wr_h, wr_d, wr_a, fact1, fact2, fact3, analysis_text):
         self.set_font_size(14)
         self.cell(0, 10, f'Match {match_idx}: {t_a} vs {t_b}', 0, 1, 'L')
         self.ln(2)
         
-        # 승률 바 그리기 (PDF 도형)
-        total_w = 190 # 전체 너비
+        # 승률 바
+        total_w = 190
         w_h = total_w * (wr_h / 100)
         w_d = total_w * (wr_d / 100)
         w_a = total_w * (wr_a / 100)
-        
-        self.set_fill_color(231, 76, 60) # Red
+        self.set_fill_color(231, 76, 60)
         self.cell(w_h, 8, f'{wr_h}%', 1, 0, 'C', 1)
-        self.set_fill_color(149, 165, 166) # Grey
+        self.set_fill_color(149, 165, 166)
         self.cell(w_d, 8, f'{wr_d}%', 1, 0, 'C', 1)
-        self.set_fill_color(52, 152, 219) # Blue
+        self.set_fill_color(52, 152, 219)
         self.cell(w_a, 8, f'{wr_a}%', 1, 1, 'C', 1)
+        self.ln(10)
+
+        # 팩트 요약
+        self.set_font_size(10)
+        self.multi_cell(0, 6, f"[상대전적] {fact1}\n[홈팀기세] {fact2}\n[원정기세] {fact3}")
         self.ln(5)
         
-        self.set_font_size(10)
-        self.multi_cell(0, 5, analysis_text)
+        # 상세 분석
+        self.multi_cell(0, 6, analysis_text)
         self.ln(10)
 
 def create_pdf(analysis_results):
     pdf = PDFReport()
     pdf.add_page()
-    
-    # 폰트 확인
     if not os.path.exists('NanumGothic.ttf'):
-        st.warning("⚠️ 'NanumGothic.ttf' 폰트 파일이 없어 PDF 한글이 깨질 수 있습니다.")
-    
+        st.warning("⚠️ 'NanumGothic.ttf' 폰트가 없어 PDF 한글이 깨질 수 있습니다.")
     for res in analysis_results:
         pdf.chapter_body(
             res['idx'], res['t_a'], res['t_b'], 
-            res['wr_h'], res['wr_d'], res['wr_a'], 
+            res['wr_h'], res['wr_d'], res['wr_a'],
+            res['fact1'], res['fact2'], res['fact3'],
             res['text']
         )
     return pdf.output(dest='S').encode('latin1')
 
-# (2) 이미지에서 경기 정보 추출 (Gemini Vision)
+# (2) 이미지 인식
 def extract_matches_from_image(image, api_key):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-pro')
-    
+    model = genai.GenerativeModel('gemini-1.5-flash')
     prompt = """
-    이 이미지는 스포츠 경기 일정표다. 
-    이미지에 있는 모든 매치업의 '홈팀 이름'과 '원정팀 이름'을 추출해서 
-    다음과 같은 JSON 형식으로만 출력해. 다른 말은 하지 마.
-    [{"team_a": "토트넘", "team_b": "아스날"}, {"team_a": "맨유", "team_b": "첼시"}]
+    이 이미지는 경기 일정표다. 홈팀과 원정팀 이름을 JSON으로 추출해.
+    형식: [{"team_a": "팀명", "team_b": "팀명"}, ...]
     """
     try:
         response = model.generate_content([prompt, image])
         text = response.text
-        # JSON 부분만 추출
         json_str = text[text.find('['):text.rfind(']')+1]
         return json.loads(json_str)
-    except Exception as e:
-        st.error(f"이미지 인식 실패: {e}")
-        return []
+    except: return []
 
-# (3) 괘 계산 및 UI 함수들 (이전과 동일)
+# (3) 괘 계산 및 UI
 def draw_lines_html(lines_list):
     html = '<div class="hex-box">'
     for val in reversed(lines_list):
@@ -157,136 +154,129 @@ with st.sidebar:
 
 st.title("💎 GEMS Pro: 승부예측 & 리포트")
 
-# [세션 상태 관리] 이미지에서 추출한 매치 정보를 저장
 if 'matches_from_image' not in st.session_state:
     st.session_state.matches_from_image = []
 
-# 1. 이미지 업로드 섹션
-with st.expander("📷 [NEW] 경기 일정 스크린샷으로 자동 입력하기", expanded=True):
-    uploaded_file = st.file_uploader("경기 목록이 담긴 이미지를 올려주세요", type=["jpg", "png", "jpeg"])
-    if uploaded_file is not None:
-        if st.button("이미지 분석 및 자동 세팅"):
-            if not api_key: st.error("API 키가 필요합니다.")
-            else:
-                with st.spinner("제미나이가 이미지를 읽고 있습니다..."):
-                    img = Image.open(uploaded_file)
-                    extracted_data = extract_matches_from_image(img, api_key)
-                    if extracted_data:
-                        st.session_state.matches_from_image = extracted_data
-                        st.success(f"총 {len(extracted_data)}개의 경기를 찾았습니다! 아래 입력창이 자동으로 세팅됩니다.")
-                    else:
-                        st.warning("경기를 찾지 못했습니다. 이미지를 확인해주세요.")
+# 1. 이미지 업로드
+with st.expander("📷 경기 일정 스크린샷으로 자동 입력 (Click)", expanded=True):
+    uploaded_file = st.file_uploader("경기 목록 이미지 업로드", type=["jpg", "png", "jpeg"])
+    if uploaded_file and st.button("이미지 분석"):
+        if not api_key: st.error("API 키 필요")
+        else:
+            with st.spinner("이미지 분석 중..."):
+                img = Image.open(uploaded_file)
+                data = extract_matches_from_image(img, api_key)
+                if data:
+                    st.session_state.matches_from_image = data
+                    st.success(f"{len(data)}경기 인식 완료!")
 
-# 2. 경기 수 및 팀명 세팅
-default_count = len(st.session_state.matches_from_image) if st.session_state.matches_from_image else 1
-num_matches = st.number_input("분석할 경기 수", min_value=1, max_value=20, value=default_count)
-
-all_matches_data = []
+# 2. 입력창 생성
+count = len(st.session_state.matches_from_image) if st.session_state.matches_from_image else 1
+num_matches = st.number_input("분석할 경기 수", 1, 20, count)
+all_matches = []
 
 st.divider()
 
 for i in range(num_matches):
     with st.container(border=True):
-        # 이미지에서 가져온 정보가 있으면 자동 입력, 없으면 빈칸
-        default_a = st.session_state.matches_from_image[i]['team_a'] if i < len(st.session_state.matches_from_image) else ""
-        default_b = st.session_state.matches_from_image[i]['team_b'] if i < len(st.session_state.matches_from_image) else ""
+        da = st.session_state.matches_from_image[i]['team_a'] if i < len(st.session_state.matches_from_image) else ""
+        db = st.session_state.matches_from_image[i]['team_b'] if i < len(st.session_state.matches_from_image) else ""
         
         st.subheader(f"Match {i+1}")
-        c_name1, c_name2 = st.columns(2)
-        with c_name1: team_a_name = st.text_input(f"홈팀", value=default_a, key=f"name_a_{i}")
-        with c_name2: team_b_name = st.text_input(f"원정팀", value=default_b, key=f"name_b_{i}")
-
-        c_hex1, c_hex2 = st.columns(2)
-        with c_hex1: inputs_a = render_hex_input_ui(f"m{i}_a", f"🏠 {team_a_name or '홈팀'} 괘")
-        with c_hex2: inputs_b = render_hex_input_ui(f"m{i}_b", f"✈️ {team_b_name or '원정팀'} 괘")
+        c1, c2 = st.columns(2)
+        ta = c1.text_input("홈팀", da, key=f"ta_{i}")
+        tb = c2.text_input("원정팀", db, key=f"tb_{i}")
         
-        all_matches_data.append({"idx": i+1, "team_a": team_a_name, "inputs_a": inputs_a, "team_b": team_b_name, "inputs_b": inputs_b})
+        c3, c4 = st.columns(2)
+        inp_a = with c3: render_hex_input_ui(f"ma_{i}", f"🏠 {ta} 괘")
+        inp_b = with c4: render_hex_input_ui(f"mb_{i}", f"✈️ {tb} 괘")
+        
+        all_matches.append({"idx": i+1, "ta": ta, "tb": tb, "inp_a": inp_a, "inp_b": inp_b})
 
-# 3. 분석 및 PDF 저장
-if st.button("🚀 GEMS 통합 분석 및 리포트 생성", type="primary"):
-    if not api_key:
-        st.error("API 키가 필요합니다.")
+# 3. 분석 실행
+if st.button("🚀 GEMS 통합 분석 시작", type="primary"):
+    if not api_key: st.error("API 키 필요")
     else:
         genai.configure(api_key=api_key)
-        final_results_for_pdf = [] # PDF용 데이터 저장소
+        pdf_data = []
         
-        for match in all_matches_data:
-            res_a = calculate_hex(match['inputs_a'])
-            res_b = calculate_hex(match['inputs_b'])
-            t_a = match['team_a'] or "홈팀"
-            t_b = match['team_b'] or "원정팀"
-
-            st.markdown(f"### 🏁 Match {match['idx']}: {t_a} vs {t_b}")
+        for m in all_matches:
+            ra = calculate_hex(m['inp_a'])
+            rb = calculate_hex(m['inp_b'])
+            ta, tb = m['ta'] or "홈", m['tb'] or "원정"
             
-            with st.spinner(f"{t_a} vs {t_b} 분석 중..."):
+            st.markdown(f"### 🏁 Match {m['idx']}: {ta} vs {tb}")
+            
+            with st.spinner("구글 검색 및 주역 분석 중..."):
                 try:
                     tools = [{"google_search_retrieval": {"dynamic_retrieval_config": {"mode": "dynamic", "dynamic_threshold": 0.7}}}]
-                    model = genai.GenerativeModel('gemini-1.5-pro', tools=tools)
+                    model = genai.GenerativeModel('gemini-1.5-flash', tools=tools)
                     
+                    # [중요] JSON 강제 출력 프롬프트
                     prompt = f"""
-                    GEMS 스포츠 분석가로서 '{t_a} vs {t_b}' 경기를 분석하라.
-                    주역 데이터: {t_a}({res_a['o_name']}->{res_a['c_name']}), {t_b}({res_b['o_name']}->{res_b['c_name']})
+                    GEMS 분석가로서 '{ta} vs {tb}' 경기를 구글 검색하고 주역 데이터({ra['o_name']}->{ra['c_name']}, {rb['o_name']}->{rb['c_name']})와 통합 분석하라.
                     
-                    [응답 형식 - JSON]
+                    반드시 아래 JSON 포맷으로만 응답할 것 (마크다운 코드블럭 금지):
                     {{
-                        "win_rate_home": 45,
-                        "win_rate_draw": 25,
-                        "win_rate_away": 30,
-                        "analysis_summary": "여기에 분석 내용을 300자 이내로 요약해서 작성. 현실 데이터와 주역 괘의 흐름을 종합하여 결론 도출."
+                        "wr_h": 45, "wr_d": 25, "wr_a": 30,
+                        "fact_h2h": "상대전적 요약 (예: 최근 5전 2승 3패)",
+                        "fact_home": "홈팀 최근 기세 요약 (예: 3연승 중)",
+                        "fact_away": "원정팀 최근 기세 요약 (예: 부상자 다수)",
+                        "summary": "종합 분석 내용 (300자 내외)"
                     }}
-                    JSON 형식만 출력해.
                     """
-                    response = model.generate_content(prompt).text
+                    resp = model.generate_content(prompt).text
                     
-                    # JSON 파싱 (간단 처리)
+                    # JSON 파싱 (실패 시 기본값)
                     try:
                         import json
-                        start = response.find('{')
-                        end = response.rfind('}') + 1
-                        data = json.loads(response[start:end])
-                        wr_h, wr_d, wr_a = data.get('win_rate_home', 33), data.get('win_rate_draw', 33), data.get('win_rate_away', 34)
-                        summary = data.get('analysis_summary', '분석 내용 없음')
+                        # JSON 문자열만 추출 (```json ... ``` 제거)
+                        json_str = resp.strip()
+                        if "```" in json_str:
+                            json_str = json_str.split("```")[1].replace("json", "").strip()
+                        data = json.loads(json_str)
                     except:
-                        wr_h, wr_d, wr_a = 33, 33, 34
-                        summary = response # 파싱 실패 시 원문
+                        data = {"wr_h": 33, "wr_d": 33, "wr_a": 34, "fact_h2h": "-", "fact_home": "-", "fact_away": "-", "summary": resp}
 
-                    # 화면 표시
+                    # 1. 현실 데이터 시각화 (3단 박스)
+                    c1, c2, c3 = st.columns(3)
+                    c1.markdown(f"<div class='fact-box'><div class='fact-title'>🆚 상대전적</div><div class='fact-value'>{data.get('fact_h2h','-')}</div></div>", unsafe_allow_html=True)
+                    c2.markdown(f"<div class='fact-box'><div class='fact-title'>📈 {ta} 기세</div><div class='fact-value'>{data.get('fact_home','-')}</div></div>", unsafe_allow_html=True)
+                    c3.markdown(f"<div class='fact-box'><div class='fact-title'>📉 {tb} 기세</div><div class='fact-value'>{data.get('fact_away','-')}</div></div>", unsafe_allow_html=True)
+
+                    # 2. 승률 바 시각화
+                    wh, wd, wa = data.get('wr_h',33), data.get('wr_d',33), data.get('wr_a',34)
                     st.markdown(f"""
                     <div class="win-rate-container">
-                        <div class="wr-home" style="width: {wr_h}%">{t_a} {wr_h}%</div>
-                        <div class="wr-draw" style="width: {wr_d}%">무 {wr_d}%</div>
-                        <div class="wr-away" style="width: {wr_a}%">{t_b} {wr_a}%</div>
+                        <div class="wr-home" style="width:{wh}%">{ta} {wh}%</div>
+                        <div class="wr-draw" style="width:{wd}%">무 {wd}%</div>
+                        <div class="wr-away" style="width:{wa}%">{tb} {wa}%</div>
                     </div>
                     """, unsafe_allow_html=True)
-                    st.info(summary)
-                    
-                    # 시각화 (괘)
-                    c1, c2 = st.columns(2)
-                    with c1: 
-                        st.caption(f"{t_a}: {res_a['o_name']} ➜ {res_a['c_name']}")
-                        st.markdown(res_a['o_visual'], unsafe_allow_html=True)
-                    with c2: 
-                        st.caption(f"{t_b}: {res_b['o_name']} ➜ {res_b['c_name']}")
-                        st.markdown(res_b['o_visual'], unsafe_allow_html=True)
 
-                    # PDF 데이터 저장
-                    final_results_for_pdf.append({
-                        "idx": match['idx'], "t_a": t_a, "t_b": t_b,
-                        "wr_h": wr_h, "wr_d": wr_d, "wr_a": wr_a,
-                        "text": summary
-                    })
+                    # 3. 주역 시각화 및 분석글
+                    st.info(data.get('summary', ''))
                     
-                except Exception as e:
-                    st.error(f"Error: {e}")
+                    cv1, cv2 = st.columns(2)
+                    with cv1: 
+                        st.caption(f"{ta}: {ra['o_name']} ➜ {ra['c_name']}")
+                        st.markdown(ra['o_visual'], unsafe_allow_html=True)
+                    with cv2: 
+                        st.caption(f"{tb}: {rb['o_name']} ➜ {rb['c_name']}")
+                        st.markdown(rb['o_visual'], unsafe_allow_html=True)
+
+                    pdf_data.append({
+                        "idx": m['idx'], "t_a": ta, "t_b": tb,
+                        "wr_h": wh, "wr_d": wd, "wr_a": wa,
+                        "fact1": data.get('fact_h2h','-'),
+                        "fact2": data.get('fact_home','-'),
+                        "fact3": data.get('fact_away','-'),
+                        "text": data.get('summary','')
+                    })
+
+                except Exception as e: st.error(f"오류: {e}")
             st.divider()
 
-        # [PDF 다운로드 버튼]
-        if final_results_for_pdf:
-            st.success("🎉 모든 분석이 완료되었습니다!")
-            pdf_bytes = create_pdf(final_results_for_pdf)
-            st.download_button(
-                label="📄 결과 리포트 PDF 다운로드",
-                data=pdf_bytes,
-                file_name="GEMS_Analysis_Report.pdf",
-                mime="application/pdf"
-            )
+        if pdf_data:
+            st.success("완료! 리포트를 다운로드하세요.")
+            st.download_button("📄 PDF 리포트 다운로드", create_pdf(pdf_data), "GEMS_Report.pdf", "application/pdf")
